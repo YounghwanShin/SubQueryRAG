@@ -1,9 +1,5 @@
-import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
-from spacy.lang.en import English
-from transformers import DPRContextEncoder, DPRContextEncoderTokenizer
-import re
 import faiss
 import pickle
 import torch
@@ -12,140 +8,90 @@ from typing import List, Dict
 
 from resource_manager import ModelManager, cuda_memory_manager
 
-nlp = English()
-nlp.add_pipe("sentencizer")
 model_manager = ModelManager()
 
-def text_formatter(text):
-    cleaned_text = text.replace("\n", " ").strip()
-    return cleaned_text
-
-def load_nq_dataset(file_path):
+def load_nq_dataset(file_path: str) -> Dict:
     with open(file_path, 'r') as f:
-        data = json.load(f)
-    return data
+        return json.load(f)
 
-def process_nq_data(nq_data):
+def process_nq_data(nq_data: Dict) -> List[Dict]:
     processed_data = []
     
     for item in tqdm(nq_data, desc="Processing NQ data"):
-        question = item['question']
-        answers = item['answers']
-        dataset = item['dataset']
-        
-        for ctx in item['positive_ctxs']:
-            processed_data.append({
-                "text": ctx['text'],
-                "title": ctx['title'],
-                "score": ctx['score'],
-                "title_score": ctx['title_score'],
-                "passage_id": ctx['passage_id']
-            })
-        
-        for ctx in item['negative_ctxs']:
-            processed_data.append({
-                "text": ctx['text'],
-                "title": ctx['title'],
-                "score": ctx['score'],
-                "title_score": ctx['title_score'],
-                "passage_id": ctx['passage_id']
-            })
-            
-        for ctx in item['hard_negative_ctxs']:
-            processed_data.append({
-                "text": ctx['text'],
-                "title": ctx['title'],
-                "score": ctx['score'],
-                "title_score": ctx['title_score'],
-                "passage_id": ctx['passage_id']
-            })
+        for ctx_type in ['positive_ctxs', 'negative_ctxs', 'hard_negative_ctxs']:
+            for ctx in item[ctx_type]:
+                processed_data.append({
+                    "text": ctx['text'].replace("\n", " ").strip(),
+                    "title": ctx['title'],
+                    "score": ctx['score'],
+                    "title_score": ctx['title_score'],
+                    "passage_id": ctx['passage_id']
+                })
     
     return processed_data
 
-def process_batch(batch_items: List[Dict], batch_size: int = 32) -> List[Dict]:
-    """Process a batch of items and generate embeddings"""
-    batch_texts = [text_formatter(item['text']) for item in batch_items]
-    
-    # Tokenize all texts in the batch
+def process_batch(batch_items: List[Dict]) -> List[Dict]:
     inputs = model_manager.context_tokenizer(
-        batch_texts,
+        [item['text'] for item in batch_items],
         max_length=256,
         padding=True,
         truncation=True,
         return_tensors="pt"
     ).to(model_manager.device)
     
-    # Generate embeddings for the entire batch
     with cuda_memory_manager():
         with torch.no_grad():
             embeddings = model_manager.context_encoder(**inputs).pooler_output
             embeddings = embeddings.cpu().numpy()
     
-    # Add embeddings to the items
-    processed_chunks = []
-    for item, embedding in zip(batch_items, embeddings):
-        chunk_dict = item.copy()
-        chunk_dict["embedding"] = embedding
-        processed_chunks.append(chunk_dict)
-    
-    return processed_chunks
+    return [
+        {**item, "embedding": embedding}
+        for item, embedding in zip(batch_items, embeddings)
+    ]
 
-def create_chunks_from_nq(processed_data, batch_size: int = 32):
+def create_chunks_from_nq(processed_data: List[Dict], batch_size: int = 32) -> List[Dict]:
     chunks = []
-    total_batches = len(processed_data) // batch_size + (1 if len(processed_data) % batch_size != 0 else 0)
+    total_batches = (len(processed_data) + batch_size - 1) // batch_size
     
     for i in tqdm(range(0, len(processed_data), batch_size), desc="Creating chunks and embeddings", total=total_batches):
-        batch_items = processed_data[i:i + batch_size]
-        batch_chunks = process_batch(batch_items, batch_size)
-        chunks.extend(batch_chunks)
+        chunks.extend(process_batch(processed_data[i:i + batch_size]))
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     
     return chunks
 
-def build_and_save_faiss_index(chunks, index_path="src/data/nq_faiss_index"):
-    embeddings = [chunk['embedding'] for chunk in chunks]
-    embeddings_array = np.array(embeddings).astype('float32')
+def build_and_save_faiss_index(chunks: List[Dict], index_path: str = "src/data/nq_faiss_index"):
+    embeddings = np.array([chunk['embedding'] for chunk in chunks]).astype('float32')
     
-    dimension = embeddings_array.shape[1]
-    index = faiss.IndexFlatIP(dimension)
-    faiss.normalize_L2(embeddings_array)
-    index.add(embeddings_array)
+    index = faiss.IndexFlatIP(embeddings.shape[1])
+    faiss.normalize_L2(embeddings)
+    index.add(embeddings)
     
     faiss.write_index(index, index_path)
     
-    metadata = []
-    for chunk in chunks:
-        meta = chunk.copy()
-        del meta['embedding']  
-        metadata.append(meta)
-    
+    metadata = [{k: v for k, v in chunk.items() if k != 'embedding'} for chunk in chunks]
     with open(f"{index_path}_metadata.pkl", 'wb') as f:
         pickle.dump(metadata, f)
 
-def save_processed_data(chunks, output_file="nq_trn_processed_data.json"):
-    processed_data = []
-    for chunk in chunks:
-        chunk_dict = chunk.copy()
-        chunk_dict['embedding'] = chunk_dict['embedding'].tolist()
-        processed_data.append(chunk_dict)
-    
+def save_processed_data(chunks: List[Dict], output_file: str = "src/data/nq_trn_processed_data.json"):
+    processed_data = [{**chunk, 'embedding': chunk['embedding'].tolist()} for chunk in chunks]
     with open(output_file, 'w') as f:
         json.dump(processed_data, f)
 
 if __name__ == "__main__":
     try:
+        BATCH_SIZE = 32
         nq_file_path = "src/data/biencoder-nq-train.json"
         
-        print("Starting process...")
-        
+        print(f"Starting process with batch size: {BATCH_SIZE}")
         nq_data = load_nq_dataset(nq_file_path)
         processed_data = process_nq_data(nq_data)
+        print(f"Total items to process: {len(processed_data)}")
         
-        # Using a batch size of 32, but this can be adjusted based on available GPU memory
-        chunks = create_chunks_from_nq(processed_data, batch_size=32)
-        
+        chunks = create_chunks_from_nq(processed_data, batch_size=BATCH_SIZE)
         build_and_save_faiss_index(chunks)
-        
-        save_processed_data(chunks, "src/data/nq_trn_processed_data.json")
+        save_processed_data(chunks)
         
         print("\nProcess completed. FAISS index and JSON file saved.")
     finally:
