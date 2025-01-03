@@ -4,8 +4,10 @@ import os
 from search import async_search_with_divide
 from utils import MAX_CONTEXT_LENGTH
 import time
-api_key = os.getenv("OPENAI_API_KEY")
-client = AsyncOpenAI(api_key)
+from dotenv import load_dotenv
+load_dotenv()
+
+client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 PROMPT_TEMPLATE = """Based on the following context items, please answer the query.
 Give yourself room to think by extracting relevant passages from the context before answering the query.
@@ -27,22 +29,22 @@ Answer: Hydration is crucial for physical performance because water plays key ro
 User query: {query}
 Answer:"""
 
-async def generate_prompt(query: str, chunks: List[Dict[str, Any]], k: int = 5) -> str:
-    relevant_chunks = await async_search_with_divide(query, chunks, k)
-
+async def generate_prompt(query: str, k: int = 5) -> str:
+    relevant_chunks = await async_search_with_divide(query, k)
+    
     context = ""
     total_length = 0
-
+    
     for chunk in relevant_chunks:
-        chunk_text = f"[{chunk['sentence_chunk']}]\n"
+        chunk_text = f"[{chunk['text']}]\n"  
         chunk_length = len(chunk_text)
-
+        
         if total_length + chunk_length > MAX_CONTEXT_LENGTH:
             break
-
+            
         context += chunk_text
         total_length += chunk_length
-
+    
     return PROMPT_TEMPLATE.format(context=context.strip(), query=query)
 
 async def generate_answer(prompt: str) -> str:
@@ -63,10 +65,7 @@ async def generate_answer(prompt: str) -> str:
         print(f"Error in generating answer: {e}")
         return "죄송합니다. 답변을 생성하는 중에 오류가 발생했습니다."
 
-async def get_gpt_answer(query: str, processed_data: List[Dict[str, Any]]) -> str:    
-    prompt_start = time.time()
-    prompt = await generate_prompt(query, processed_data, k=20)
-    
-    answer = await generate_answer(prompt) 
-    
+async def get_gpt_answer(query: str) -> str:
+    prompt = await generate_prompt(query, k=20)
+    answer = await generate_answer(prompt)
     return answer

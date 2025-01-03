@@ -2,11 +2,8 @@ doc
 DPR
 nq
 QueryLLM_finetuning
-data
+
 .history
-*.json
-*index
-*.pkl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -15,7 +12,10 @@ __pycache__/
 
 keyword_to_query_model
 nq_raw.txt
-
+*.json
+*.pkl
+*index
+data
 # C extensions
 *.so
 

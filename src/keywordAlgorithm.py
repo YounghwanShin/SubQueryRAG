@@ -158,7 +158,7 @@ def extract_keywords(query, topk=5):
     return final_keywords[:topk]
 
 if __name__ == "__main__":
-    query = "Can you explain the basics of quantum computing, recommend a good recipe for homemade pizza dough, and tell me about the economic impacts of climate change on agriculture? Also, I'd love to see a simple Python script that calculates prime numbers."
+    query = "What is the ideal ratio of protein, carbohydrates, and fats in a balanced diet? Please suggest a daily meal plan that reflects these ratios and explain the impact of each nutrient on the body."
     topk_keywords = extract_keywords(query, topk=5)
     print(f"Query: {query}")
     print(f"Keywords: {', '.join(topk_keywords)}")
