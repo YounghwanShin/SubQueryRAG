@@ -8,6 +8,7 @@ import faiss
 import pickle
 import torch
 import json
+from typing import List, Dict
 
 from resource_manager import ModelManager, cuda_memory_manager
 
@@ -61,26 +62,38 @@ def process_nq_data(nq_data):
     
     return processed_data
 
-def create_chunks_from_nq(processed_data):
-    chunks = []
-    for idx, item in enumerate(tqdm(processed_data, desc="Creating chunks and embeddings")):
+def process_batch(batch_items: List[Dict], batch_size: int = 32) -> List[Dict]:
+    batch_texts = [text_formatter(item['text']) for item in batch_items]
+
+    inputs = model_manager.context_tokenizer(
+        batch_texts,
+        max_length=256,
+        padding=True,
+        truncation=True,
+        return_tensors="pt"
+    ).to(model_manager.device)
+    
+    with cuda_memory_manager():
+        with torch.no_grad():
+            embeddings = model_manager.context_encoder(**inputs).pooler_output
+            embeddings = embeddings.cpu().numpy()
+    
+    processed_chunks = []
+    for item, embedding in zip(batch_items, embeddings):
         chunk_dict = item.copy()
-        text = text_formatter(item['text'])
-        
-        inputs = model_manager.context_tokenizer(
-            text, 
-            max_length=256, 
-            padding=True, 
-            truncation=True,
-            return_tensors="pt"
-        ).to(model_manager.device)
-        
-        with cuda_memory_manager():
-            with torch.no_grad():
-                embedding = model_manager.context_encoder(**inputs).pooler_output[0]
-                chunk_dict["embedding"] = embedding.cpu().numpy()
-        
-        chunks.append(chunk_dict)
+        chunk_dict["embedding"] = embedding
+        processed_chunks.append(chunk_dict)
+    
+    return processed_chunks
+
+def create_chunks_from_nq(processed_data, batch_size: int = 32):
+    chunks = []
+    total_batches = len(processed_data) // batch_size + (1 if len(processed_data) % batch_size != 0 else 0)
+    
+    for i in tqdm(range(0, len(processed_data), batch_size), desc="Creating chunks and embeddings", total=total_batches):
+        batch_items = processed_data[i:i + batch_size]
+        batch_chunks = process_batch(batch_items, batch_size)
+        chunks.extend(batch_chunks)
     
     return chunks
 
@@ -122,7 +135,8 @@ if __name__ == "__main__":
         
         nq_data = load_nq_dataset(nq_file_path)
         processed_data = process_nq_data(nq_data)
-        chunks = create_chunks_from_nq(processed_data)
+        
+        chunks = create_chunks_from_nq(processed_data, batch_size=32)
         
         build_and_save_faiss_index(chunks)
         
