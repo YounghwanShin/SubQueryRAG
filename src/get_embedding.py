@@ -104,7 +104,7 @@ def build_and_save_faiss_index(chunks, index_path="src/data/nq_faiss_index"):
     with open(f"{index_path}_metadata.pkl", 'wb') as f:
         pickle.dump(metadata, f)
 
-def save_processed_data(chunks, output_file="nq_processed_data.json"):
+def save_processed_data(chunks, output_file="nq_trn_processed_data.json"):
     processed_data = []
     for chunk in chunks:
         chunk_dict = chunk.copy()
@@ -116,7 +116,7 @@ def save_processed_data(chunks, output_file="nq_processed_data.json"):
 
 if __name__ == "__main__":
     try:
-        nq_file_path = "src/data/nq_test.json"
+        nq_file_path = "src/data/biencoder-nq-train.json"
         
         print("Starting process...")
         
@@ -126,7 +126,7 @@ if __name__ == "__main__":
         
         build_and_save_faiss_index(chunks)
         
-        save_processed_data(chunks, "src/data/nq_processed_data.json")
+        save_processed_data(chunks, "src/data/nq_trn_processed_data.json")
         
         print("\nProcess completed. FAISS index and JSON file saved.")
     finally:
