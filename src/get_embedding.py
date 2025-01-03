@@ -63,8 +63,10 @@ def process_nq_data(nq_data):
     return processed_data
 
 def process_batch(batch_items: List[Dict], batch_size: int = 32) -> List[Dict]:
+    """Process a batch of items and generate embeddings"""
     batch_texts = [text_formatter(item['text']) for item in batch_items]
-
+    
+    # Tokenize all texts in the batch
     inputs = model_manager.context_tokenizer(
         batch_texts,
         max_length=256,
@@ -73,11 +75,13 @@ def process_batch(batch_items: List[Dict], batch_size: int = 32) -> List[Dict]:
         return_tensors="pt"
     ).to(model_manager.device)
     
+    # Generate embeddings for the entire batch
     with cuda_memory_manager():
         with torch.no_grad():
             embeddings = model_manager.context_encoder(**inputs).pooler_output
             embeddings = embeddings.cpu().numpy()
     
+    # Add embeddings to the items
     processed_chunks = []
     for item, embedding in zip(batch_items, embeddings):
         chunk_dict = item.copy()
@@ -136,6 +140,7 @@ if __name__ == "__main__":
         nq_data = load_nq_dataset(nq_file_path)
         processed_data = process_nq_data(nq_data)
         
+        # Using a batch size of 32, but this can be adjusted based on available GPU memory
         chunks = create_chunks_from_nq(processed_data, batch_size=32)
         
         build_and_save_faiss_index(chunks)
