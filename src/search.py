@@ -51,9 +51,8 @@ async def async_search_with_divide(original_query: str, k: int = 5) -> List[Dict
     
     for results in all_results:
         for result in results:
-            chunk_id = (result['passage_id'], result['text'])
-            if chunk_id not in seen_chunks:
-                seen_chunks.add(chunk_id)
+            if result['chunk_id'] not in seen_chunks:
+                seen_chunks.add(result['chunk_id'])
                 merged_results.append(result)
     
     merged_results.sort(key=lambda x: x['relevance_score'], reverse=True)
