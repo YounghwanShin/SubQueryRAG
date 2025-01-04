@@ -22,14 +22,3 @@ def get_query_embedding(text: str) -> np.ndarray:
         with torch.no_grad():
             embeddings = model_manager.question_encoder(**inputs).pooler_output
         return embeddings[0].cpu().numpy()
-
-"""
-def load_processed_data(file_path: str):
-    with open(file_path, 'r') as f:
-        data = json.load(f)
-    
-    for item in data:
-        item['embedding'] = np.array(item['embedding'])
-    
-    return data
-"""

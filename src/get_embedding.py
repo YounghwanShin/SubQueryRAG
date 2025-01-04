@@ -16,16 +16,21 @@ def load_nq_dataset(file_path: str) -> Dict:
 
 def process_nq_data(nq_data: Dict) -> List[Dict]:
     processed_data = []
+    doc_id = 0
     
     for item in tqdm(nq_data, desc="Processing NQ data"):
         for ctx_type in ['positive_ctxs', 'negative_ctxs', 'hard_negative_ctxs']:
-            for ctx in item[ctx_type]:
+            for chunk_index, ctx in enumerate(item[ctx_type]):
+                doc_id += 1
                 processed_data.append({
                     "text": ctx['text'].replace("\n", " ").strip(),
                     "title": ctx['title'],
-                    "score": ctx['score'],
-                    "title_score": ctx['title_score'],
-                    "passage_id": ctx['passage_id']
+                    "doc_id": f"nq_doc_{doc_id}",
+                    "chunk_id": f"nq_doc_{doc_id}_chunk_{chunk_index}",
+                    "length": len(ctx['text']),
+                    "chunk_index": chunk_index,
+                    "source": "natural_questions",
+                    "model_version": model_manager.context_encoder.config.model_type
                 })
     
     return processed_data
@@ -70,18 +75,39 @@ def build_and_save_faiss_index(chunks: List[Dict], index_path: str = "src/data/n
     
     faiss.write_index(index, index_path)
     
-    metadata = [{k: v for k, v in chunk.items() if k != 'embedding'} for chunk in chunks]
+    metadata = [{
+        'doc_id': chunk['doc_id'],
+        'chunk_id': chunk['chunk_id'],
+        'text': chunk['text'],
+        'title': chunk['title'],
+        'length': chunk['length'],
+        'chunk_index': chunk['chunk_index'],
+        'source': chunk['source'],
+        'model_version': chunk['model_version']
+    } for chunk in chunks]
+    
     with open(f"{index_path}_metadata.pkl", 'wb') as f:
         pickle.dump(metadata, f)
 
 def save_processed_data(chunks: List[Dict], output_file: str = "src/data/nq_trn_processed_data.json"):
-    processed_data = [{**chunk, 'embedding': chunk['embedding'].tolist()} for chunk in chunks]
+    processed_data = [{
+        'doc_id': chunk['doc_id'],
+        'chunk_id': chunk['chunk_id'],
+        'text': chunk['text'],
+        'title': chunk['title'],
+        'length': chunk['length'],
+        'chunk_index': chunk['chunk_index'],
+        'source': chunk['source'],
+        'model_version': chunk['model_version'],
+        'embedding': chunk['embedding'].tolist()
+    } for chunk in chunks]
+    
     with open(output_file, 'w') as f:
         json.dump(processed_data, f)
 
 if __name__ == "__main__":
     try:
-        BATCH_SIZE = 32
+        BATCH_SIZE = 16
         nq_file_path = "src/data/biencoder-nq-train.json"
         
         print(f"Starting process with batch size: {BATCH_SIZE}")

@@ -158,8 +158,8 @@ def extract_keywords(query, topk=5):
     return final_keywords[:topk]
 
 if __name__ == "__main__":
-    query = "What is the ideal ratio of protein, carbohydrates, and fats in a balanced diet? Please suggest a daily meal plan that reflects these ratios and explain the impact of each nutrient on the body."
-    topk_keywords = extract_keywords(query, topk=5)
+    query = "Which company among Google, Apple, and Nvidia reported the largest profit margins in their third-quarter reports for 2023"
+    topk_keywords = extract_keywords(query, topk=7)
     print(f"Query: {query}")
     print(f"Keywords: {', '.join(topk_keywords)}")
     
