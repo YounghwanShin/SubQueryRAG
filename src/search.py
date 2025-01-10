@@ -3,7 +3,6 @@ import numpy as np
 import faiss
 import asyncio
 from utils import get_query_embedding, RELEVANCE_THRESHOLD
-from query_processor import divide_query
 import time
 import pickle
 from resource_manager import FAISSIndexManager, cuda_memory_manager
