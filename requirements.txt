@@ -1,0 +1,16 @@
+evaluate==0.4.3
+faiss_cpu==1.9.0
+matplotlib==3.8.4
+nltk==3.8.1
+numpy==2.2.1
+openai==1.59.6
+pandas==2.2.3
+python-dotenv==1.0.1
+rake_nltk==1.0.6
+scikit_learn==1.6.1
+sentence_transformers==3.0.1
+spacy==3.7.6
+torch==2.5.1
+tqdm==4.66.4
+transformers==4.42.3
+yake==0.4.8

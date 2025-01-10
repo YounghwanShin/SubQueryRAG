@@ -5,7 +5,7 @@ import pickle
 import torch
 import json
 from typing import List, Dict
-
+from torch.cuda.amp import autocast
 from resource_manager import ModelManager, cuda_memory_manager
 
 model_manager = ModelManager()
@@ -46,11 +46,12 @@ def process_batch(batch_items: List[Dict]) -> List[Dict]:
     
     with cuda_memory_manager():
         with torch.no_grad():
-            embeddings = model_manager.context_encoder(**inputs).pooler_output
-            embeddings = embeddings.cpu().numpy()
+            with autocast():
+                embeddings = model_manager.context_encoder(**inputs).pooler_output
+                embeddings = embeddings.float().cpu().numpy()
     
     return [
-        {**item, "embedding": embedding}
+        {**item, "embedding": embedding.astype(np.float16)}
         for item, embedding in zip(batch_items, embeddings)
     ]
 
@@ -67,12 +68,19 @@ def create_chunks_from_nq(processed_data: List[Dict], batch_size: int = 32) -> L
     return chunks
 
 def build_and_save_faiss_index(chunks: List[Dict], index_path: str = "src/data/nq_faiss_index"):
-    embeddings = np.array([chunk['embedding'] for chunk in chunks]).astype('float32')
+    print("Converting embeddings to FP32...")
+    embeddings = np.array([chunk['embedding'].astype('float32') for chunk in chunks])
     
+    print("Creating FAISS index...")
     index = faiss.IndexFlatIP(embeddings.shape[1])
+    
+    print("Normalizing vectors...")
     faiss.normalize_L2(embeddings)
+    
+    print("Adding vectors to index...")
     index.add(embeddings)
     
+    print("Writing index to disk...")
     faiss.write_index(index, index_path)
     
     metadata = [{
@@ -89,25 +97,40 @@ def build_and_save_faiss_index(chunks: List[Dict], index_path: str = "src/data/n
     with open(f"{index_path}_metadata.pkl", 'wb') as f:
         pickle.dump(metadata, f)
 
-def save_processed_data(chunks: List[Dict], output_file: str = "src/data/nq_trn_processed_data.json"):
-    processed_data = [{
-        'doc_id': chunk['doc_id'],
-        'chunk_id': chunk['chunk_id'],
-        'text': chunk['text'],
-        'title': chunk['title'],
-        'length': chunk['length'],
-        'chunk_index': chunk['chunk_index'],
-        'source': chunk['source'],
-        'model_version': chunk['model_version'],
-        'embedding': chunk['embedding'].tolist()
-    } for chunk in chunks]
-    
+def save_processed_data_in_chunks(chunks: List[Dict], output_file: str = "src/data/nq_trn_processed_data.json", chunk_size: int = 1000):
     with open(output_file, 'w') as f:
-        json.dump(processed_data, f)
+        f.write('[')
+    
+    total_chunks = len(chunks)
+    
+    for i in range(0, total_chunks, chunk_size):
+        batch = chunks[i:i + chunk_size]
+        batch_data = [{
+            'doc_id': item['doc_id'],
+            'chunk_id': item['chunk_id'],
+            'text': item['text'],
+            'title': item['title'],
+            'length': item['length'],
+            'chunk_index': item['chunk_index'],
+            'source': item['source'],
+            'model_version': item['model_version'],
+            'embedding': item['embedding'].tolist()
+        } for item in batch]
+        
+        with open(output_file, 'a') as f:
+            if i > 0:
+                f.write(',')
+            json.dump(batch_data, f, ensure_ascii=False)
+            
+        del batch_data
+        print(f"Saved {i + len(batch)}/{total_chunks} items")
+    
+    with open(output_file, 'a') as f:
+        f.write(']')
 
 if __name__ == "__main__":
     try:
-        BATCH_SIZE = 16
+        BATCH_SIZE = 32
         nq_file_path = "src/data/biencoder-nq-train.json"
         
         print(f"Starting process with batch size: {BATCH_SIZE}")
@@ -117,7 +140,7 @@ if __name__ == "__main__":
         
         chunks = create_chunks_from_nq(processed_data, batch_size=BATCH_SIZE)
         build_and_save_faiss_index(chunks)
-        save_processed_data(chunks)
+        save_processed_data_in_chunks(chunks, chunk_size=1000)
         
         print("\nProcess completed. FAISS index and JSON file saved.")
     finally:
