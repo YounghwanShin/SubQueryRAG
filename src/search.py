@@ -3,7 +3,6 @@ import numpy as np
 import faiss
 import asyncio
 from utils import get_query_embedding, RELEVANCE_THRESHOLD
-from query_processor import divide_query
 import time
 import pickle
 from resource_manager import FAISSIndexManager, cuda_memory_manager
@@ -57,3 +56,27 @@ async def async_search_with_divide(original_query: str, k: int = 5) -> List[Dict
     
     merged_results.sort(key=lambda x: x['relevance_score'], reverse=True)
     return merged_results[:k]
+
+async def test_search(query: str):
+    try:
+        index_path = "src/data/nq_faiss_index"
+        print(f"Loading index from: {index_path}")
+        faiss_manager.load_index(index_path)
+        
+        results = await search_query(query)
+            
+        print("\nSearch Results:")
+        print("-" * 80)
+        for i, result in enumerate(results, 1):
+            print(f"\nResult {i}:")
+            print(f"Score: {result['relevance_score']:.4f}")
+            print(f"Title: {result['title']}")
+            print(f"Text: {result['text'][:200]}...")
+            print("-" * 80)
+            
+    finally:
+        faiss_manager.cleanup()
+
+if __name__ == "__main__":
+    query = "who was the first woman to win a Nobel Prize"
+    asyncio.run(test_search(query))
